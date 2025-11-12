@@ -235,29 +235,93 @@ generate_zbm_manual() {
 }
 
 ################################################################################
-# Configure bootloader (systemd-boot or rEFInd)
+# Install ZFSBootMenu directly as EFI application (no boot manager)
+################################################################################
+
+install_zbm_direct() {
+    local drives=("$@")
+
+    log_info "Installing ZFSBootMenu as standalone EFI bootloader..."
+
+    # Install ZFSBootMenu packages and generate image
+    install_zfsbootmenu "$DISTRO" "$POOL_NAME"
+
+    # Create EFI boot entry for ZFSBootMenu
+    local efi_partition="${drives[0]}"
+    if [[ "$efi_partition" =~ nvme ]]; then
+        efi_partition="${efi_partition}p1"
+    else
+        efi_partition="${efi_partition}1"
+    fi
+
+    # Add EFI boot entry using efibootmgr
+    if command_exists efibootmgr; then
+        log_info "Creating EFI boot entry for ZFSBootMenu..."
+
+        # Remove existing ZFSBootMenu entries
+        local existing_entries
+        existing_entries=$(efibootmgr | grep -i "ZFSBootMenu" | awk '{print $1}' | tr -d 'Boot*' || true)
+        for entry in $existing_entries; do
+            log_info "Removing old boot entry: $entry"
+            execute_cmd "efibootmgr -b $entry -B" || true
+        done
+
+        # Add new entry
+        execute_cmd "efibootmgr -c -d /dev/${drives[0]} -p 1 -L 'ZFSBootMenu' -l '\\EFI\\zbm\\vmlinuz-bootmenu' -u 'ro quiet loglevel=3'"
+
+        # Set ZFSBootMenu as default boot option
+        local zbm_bootnum
+        zbm_bootnum=$(efibootmgr | grep "ZFSBootMenu" | awk '{print $1}' | tr -d 'Boot*')
+        if [[ -n "$zbm_bootnum" ]]; then
+            execute_cmd "efibootmgr -o $zbm_bootnum"
+            log_success "ZFSBootMenu set as default boot option"
+        fi
+    else
+        log_warn "efibootmgr not found - EFI boot entry not created"
+        log_warn "You may need to manually configure EFI boot entry"
+    fi
+
+    log_success "ZFSBootMenu installed as standalone EFI bootloader"
+}
+
+################################################################################
+# Configure bootloader based on BOOTLOADER setting
 ################################################################################
 
 configure_bootloader() {
     local drives=("$@")
-    
-    log_info "Configuring bootloader..."
-    
+
+    log_info "Configuring bootloader: $BOOTLOADER"
+
     # Format and mount EFI partitions
     format_efi_partitions "${drives[@]}"
     mount_efi_partition "${drives[0]}"
-    
-    # Install bootloader (prefer systemd-boot)
-    if command_exists bootctl; then
-        install_systemd_boot "${drives[@]}"
-    else
-        log_warn "systemd-boot not available, installing rEFInd..."
-        install_refind "${drives[@]}"
-    fi
-    
+
+    # Install bootloader based on configuration
+    case "$BOOTLOADER" in
+        zbm)
+            # ZFSBootMenu as standalone EFI bootloader (default)
+            install_zbm_direct "${drives[@]}"
+            ;;
+        systemd-boot)
+            # systemd-boot with ZFSBootMenu as kernel
+            log_info "Installing systemd-boot boot manager..."
+            install_systemd_boot "${drives[@]}"
+            ;;
+        refind)
+            # rEFInd with ZFSBootMenu detection
+            log_info "Installing rEFInd boot manager..."
+            install_refind "${drives[@]}"
+            ;;
+        *)
+            log_error "Unknown bootloader: $BOOTLOADER"
+            return 1
+            ;;
+    esac
+
     # Setup swap if configured
     setup_swap "${drives[@]}"
-    
+
     log_success "Bootloader configuration completed"
 }
 
