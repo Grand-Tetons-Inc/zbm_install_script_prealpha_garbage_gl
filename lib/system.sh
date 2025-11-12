@@ -380,13 +380,11 @@ post_copy_configuration() {
         fi
     fi
 
-    # Clear network interface persistent rules if present
-    if [[ -f "${target}/etc/udev/rules.d/70-persistent-net.rules" ]]; then
-        log_info "Removing persistent network rules"
-        if [[ "$DRY_RUN" != "true" ]]; then
-            rm -f "${target}/etc/udev/rules.d/70-persistent-net.rules"
-        fi
-    fi
+    # Zap all network configuration to ensure clean network identity
+    # This includes NetworkManager, systemd-networkd, netplan, wicked,
+    # DHCP leases, persistent rules, hostname, cloud-init, and firewall rules
+    log_info "Zapping network configuration for clean identity..."
+    zap_all_network_config "$target"
 
     log_success "Post-copy configuration completed"
     return 0

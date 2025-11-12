@@ -8,15 +8,25 @@ git clone https://github.com/Grand-Tetons-Inc/zbm_install_script_prealpha_garbag
 cd zbm_install_script_prealpha_garbage
 
 # 2. Make executable
-chmod +x zbm_install.sh
+chmod +x zbm_install.sh zbm-tui.sh zbm-notcurses.sh
 
 # 3. Run with desired options (as root)
 sudo ./zbm_install.sh -m new -d sda
 ```
 
+## Interactive TUI
+
+```bash
+# Dialog-based TUI (works everywhere)
+sudo ./zbm-tui.sh
+
+# Notcurses TUI (advanced graphics)
+sudo ./zbm-notcurses.sh
+```
+
 ## Common Commands
 
-### Single Drive
+### Single Drive (Standalone ZBM)
 ```bash
 sudo ./zbm_install.sh -m new -d sda
 ```
@@ -29,6 +39,21 @@ sudo ./zbm_install.sh -m new -d sda,sdb -r mirror
 ### RAIDZ1 (3+ drives)
 ```bash
 sudo ./zbm_install.sh -m new -d sda,sdb,sdc -r raidz1
+```
+
+### With systemd-boot
+```bash
+sudo ./zbm_install.sh -m new -d sda --bootloader systemd-boot
+```
+
+### With rEFInd
+```bash
+sudo ./zbm_install.sh -m new -d sda --bootloader refind
+```
+
+### NVMe with 4K Sector Formatting
+```bash
+sudo ./zbm_install.sh -m new -d nvme0n1 --nvme-format-4k
 ```
 
 ### Custom Configuration
@@ -59,6 +84,7 @@ sudo ./zbm_install.sh -m new -d sda -v
 ### Migrate Existing System (EXCITING NEW FEATURE!)
 ```bash
 # Copy running system to new ZFS mirrored setup
+# Includes automatic network identity cleanup!
 sudo ./zbm_install.sh -m existing -d sda,sdb -r mirror
 
 # Exclude specific paths during migration
@@ -68,6 +94,12 @@ sudo ./zbm_install.sh -m existing -d nvme0n1 \
 
 # Don't copy home directories
 sudo ./zbm_install.sh -m existing -d sda --no-copy-home
+
+# With NVMe optimization
+sudo ./zbm_install.sh -m existing -d nvme0n1,nvme1n1 \
+  -r mirror \
+  --nvme-format-4k \
+  -H newhost
 ```
 
 ## Option Reference
@@ -78,6 +110,11 @@ sudo ./zbm_install.sh -m existing -d sda --no-copy-home
 | `-m, --mode` | `new`, `existing` | Installation mode |
 | `-d, --drives` | `sda`, `sda,sdb`, etc. | Comma-separated drive list |
 
+### Bootloader Configuration 🆕
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| `-b, --bootloader` | `zbm`, `systemd-boot`, `refind` | `zbm` | Bootloader type (zbm is standalone) |
+
 ### Storage Configuration
 | Option | Values | Default | Description |
 |--------|--------|---------|-------------|
@@ -86,6 +123,15 @@ sudo ./zbm_install.sh -m existing -d sda --no-copy-home
 | `-e, --efi-size` | `512M`, `1G`, etc. | `1G` | EFI partition size |
 | `-s, --swap-size` | `8G`, `16G`, `0` | `8G` | Swap size (0=disable) |
 
+### Device Tuning 🆕
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| `--nvme-format-4k` | flag | `false` | Format NVMe to 4K sectors (DESTROYS DATA!) |
+
+### ZFS Tuning
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| `-a, --ashift` | `9-16` or `auto` | `auto` | ZFS block alignment (9=512B, 12=4K, 13=8K) |
 ### ZFS Tuning
 | Option | Values | Default | Description |
 |--------|--------|---------|-------------|
@@ -115,6 +161,40 @@ sudo ./zbm_install.sh -m existing -d sda --no-copy-home
 | `-B, --no-backup` | flag | `false` | Don't backup existing configuration |
 | `-h, --help` | flag | - | Show help message |
 
+## Bootloader Options Explained
+
+### zbm (Default) ⭐ RECOMMENDED
+- ZFSBootMenu as standalone EFI bootloader
+- No intermediate boot manager needed
+- Simplest configuration, fewest moving parts
+- Direct EFI boot to ZFSBootMenu
+
+```bash
+sudo ./zbm_install.sh -m new -d sda
+# or explicitly:
+sudo ./zbm_install.sh -m new -d sda --bootloader zbm
+```
+
+### systemd-boot
+- Uses systemd-boot as boot manager
+- ZBM loaded as kernel by systemd-boot
+- Good for dual-boot setups
+- Requires `bootctl` command
+
+```bash
+sudo ./zbm_install.sh -m new -d sda --bootloader systemd-boot
+```
+
+### refind
+- Uses rEFInd as graphical boot manager
+- Automatic OS detection
+- Advanced multi-boot support
+- Requires `refind-install` command
+
+```bash
+sudo ./zbm_install.sh -m new -d sda --bootloader refind
+```
+
 ## RAID Requirements
 
 | RAID Level | Min Drives | Redundancy | Description |
@@ -135,6 +215,25 @@ sudo ./zbm_install.sh -m existing -d sda --no-copy-home
 - [ ] Ensure system has network access
 - [ ] Test with `--dry-run` first
 - [ ] Understand that target drives will be COMPLETELY WIPED
+- [ ] For migration: ensure target drives are NOT your system drive
+
+## Safety Features 🆕
+
+### Automatic Device Fitness Checks
+- SMART health validation
+- Mounted partition detection
+- MD RAID membership check
+- Source system protection (never destroys running system)
+- Minimum size requirements
+
+### Network Identity Cleanup (Migration Mode)
+- Removes NetworkManager connections
+- Clears systemd-networkd configs
+- Removes netplan configurations
+- Clears DHCP leases
+- Removes persistent network rules
+- Clears cloud-init data
+- Removes firewall rules
 
 ## Post-Installation
 
@@ -146,8 +245,14 @@ sudo ./zbm_install.sh -m existing -d sda --no-copy-home
 
 2. Check boot configuration:
    ```bash
+   # Check EFI entries
+   efibootmgr -v
+
+   # Verify ZBM images
    ls -l /boot/efi/EFI/zbm/
-   bootctl status  # or: efibootmgr
+
+   # If using systemd-boot
+   bootctl status
    ```
 
 3. Reboot system:
@@ -155,7 +260,7 @@ sudo ./zbm_install.sh -m existing -d sda --no-copy-home
    reboot
    ```
 
-4. At boot, select ZFSBootMenu
+4. At boot, select ZFSBootMenu (or it should auto-boot)
 
 ## Troubleshooting
 
@@ -184,6 +289,18 @@ efibootmgr -v
 ls -l /boot/efi/EFI/
 ```
 
+### Check device fitness
+```bash
+# Check SMART health
+sudo smartctl -H /dev/sda
+
+# Check NVMe sector size
+sudo nvme id-ns /dev/nvme0n1 -n 1
+
+# View mounted partitions
+mount | grep sda
+```
+
 ## Example Workflow
 
 ```bash
@@ -204,6 +321,7 @@ sudo ./zbm_install.sh -m new -d sda,sdb -r mirror -v
 # 5. Verify after installation
 zpool status zroot
 zfs list -r zroot
+efibootmgr -v  # Check boot entry
 cat /var/log/zbm_install.log  # Check logs
 
 # 6. Reboot
@@ -212,6 +330,9 @@ sudo reboot
 
 ## Advanced Examples
 
+### High-Performance NVMe Setup with 4K Sectors
+```bash
+# NVMe with 4K sector formatting
 ### High-Performance SSD Setup
 ```bash
 # NVMe SSD with optimal settings
@@ -219,6 +340,7 @@ sudo ./zbm_install.sh \
   -m new \
   -d nvme0n1,nvme1n1 \
   -r mirror \
+  --nvme-format-4k \
   -a 12 \
   -c zstd \
   -s 32G \
@@ -226,7 +348,7 @@ sudo ./zbm_install.sh \
   -v
 ```
 
-### Minimal Installation (No Swap)
+### Minimal Installation (No Swap, Standalone ZBM)
 ```bash
 # Single drive, no swap, smaller EFI
 sudo ./zbm_install.sh \
@@ -234,7 +356,8 @@ sudo ./zbm_install.sh \
   -d sda \
   -e 512M \
   -s 0 \
-  -c lz4
+  -c lz4 \
+  --bootloader zbm
 ```
 
 ### RAIDZ2 for Data Integrity
@@ -248,9 +371,10 @@ sudo ./zbm_install.sh \
   -v
 ```
 
-### Migrate Running System to ZFS
+### Migrate Running System to ZFS with Network Cleanup
 ```bash
 # Copy current system to new ZFS mirror with custom exclusions
+# Network identity is automatically cleaned!
 sudo ./zbm_install.sh \
   -m existing \
   -d sda,sdb \
@@ -268,11 +392,31 @@ sudo ./zbm_install.sh \
   -d nvme0n1 \
   --no-copy-home \
   -f
+
+# Migration with NVMe optimization
+sudo ./zbm_install.sh \
+  -m existing \
+  -d nvme0n1,nvme1n1 \
+  -r mirror \
+  --nvme-format-4k \
+  -H production \
+  -v
+```
+
+### Dual Boot Setup with rEFInd
+```bash
+# Install with rEFInd for multi-OS boot management
+sudo ./zbm_install.sh \
+  -m new \
+  -d sda \
+  --bootloader refind \
+  -v
 ```
 
 ## Need Help?
 
 - Read full documentation: `README.md`
+- Check TUI documentation: `TUI_README.md`
 - Check examples: `examples/` directory
 - Review logs: `/var/log/zbm_install.log`
 - Visit: https://docs.zfsbootmenu.org/
@@ -285,9 +429,23 @@ sudo ./zbm_install.sh \
 - Use `--dry-run` to preview
 - Verify drive names with `lsblk`
 - Double-check RAID configuration
+- Verify target drives are NOT your system drive
+- Read and understand all warnings
 
 ❌ **NEVER:**
 - Run on production without backup
 - Use wrong drive identifiers
 - Interrupt installation process
 - Ignore error messages
+- Use your system's boot drive as target (unless you know what you're doing)
+- Format NVMe to 4K without understanding implications
+
+## Quick Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "Bootloader validation fails" | Install requested bootloader or use `--bootloader zbm` |
+| "Device fitness check fails" | Unmount partitions, remove from MD RAID, or check SMART health |
+| "Source system protection" | Don't use your running system's drive as target |
+| "Network not working after migration" | Normal! Network config was cleaned for fresh identity |
+| "System doesn't boot" | Check `efibootmgr -v` and verify `/boot/efi/EFI/zbm/` exists |
