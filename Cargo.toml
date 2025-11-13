@@ -59,7 +59,7 @@ opt-level = 0
 debug = true
 
 [features]
-default = []
+default = ["tui"]
 tui = ["libnotcurses-sys"]
 
 [[bin]]

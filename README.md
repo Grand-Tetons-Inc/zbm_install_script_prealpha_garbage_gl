@@ -1,10 +1,38 @@
 # ZFSBootMenu Installation Script
 
-A comprehensive BASH script solution for installing [ZFSBootMenu](https://zfsbootmenu.org/) on Linux systems with support for single or multiple drives in various RAID configurations.
+A comprehensive installation solution for [ZFSBootMenu](https://zfsbootmenu.org/) on Linux systems with support for single or multiple drives in various RAID configurations.
 
-## 🎨 NEW: Interactive TUI Available!
+## 🚀 NEW: Modern Rust Implementation with Notcurses TUI!
 
-We now have TWO beautiful Text User Interfaces for guided installation:
+We now have a **modern Rust rewrite** with a beautiful notcurses-based TUI interface!
+
+### Rust CLI/TUI Installer (Recommended)
+```bash
+# Build from source (requires Rust, libudev-dev, libnotcurses-dev)
+cargo build --release
+
+# Run in interactive TUI mode
+sudo ./target/release/zbm-installer --tui
+
+# Or use CLI mode
+sudo ./target/release/zbm-installer --mode new --drives /dev/sda --raid mirror
+```
+
+See [BUILDING.md](BUILDING.md) for build requirements and instructions.
+
+**Features:**
+- Full notcurses-based TUI with rich graphics
+- Device tree view (inspired by Growlight)
+- Real-time device discovery with hotplug support
+- Step-by-step wizard with validation
+- Beautiful color-coded UI elements
+- Progress bars and status indicators
+- Comprehensive error handling
+- Type-safe Rust implementation
+
+## 🎨 Classic BASH TUI Options
+
+We also have TWO beautiful BASH-based Text User Interfaces:
 
 ### Dialog-based TUI (Works Everywhere)
 ```bash
