@@ -47,6 +47,10 @@ pub enum InstallerError {
     #[error("UI error: {0}")]
     UiError(String),
 
+    /// User cancelled operation
+    #[error("Operation cancelled by user")]
+    UserCancelled,
+
     /// Insufficient permissions
     #[error("Insufficient permissions: {0}. This program must be run as root.")]
     PermissionDenied(String),

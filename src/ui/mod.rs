@@ -1,11 +1,13 @@
 //! TUI framework using Notcurses
 //!
 //! This module provides a text user interface for the ZBM installer.
-//! Currently implements a simple version - full Notcurses integration is TODO.
 
+pub mod context;
 pub mod runner;
 pub mod screens;
+pub mod widgets;
 
+pub use context::NotcursesContext;
 pub use runner::UiRunner;
 pub use screens::Screen;
 
@@ -25,10 +27,8 @@ impl UiManager {
 
     /// Run the interactive TUI
     pub fn run(&mut self) -> Result<Config> {
-        // TODO: Full Notcurses implementation
-        // For now, return the config
-        log::info!("TUI mode not yet fully implemented. Use CLI mode.");
-        Ok(self.config.clone())
+        let mut runner = UiRunner::new(self.config.clone());
+        runner.run()
     }
 }
 
