@@ -3,9 +3,6 @@
 use super::context::{channels, NotcursesContext};
 use crate::error::Result;
 
-#[cfg(feature = "tui")]
-use libnotcurses_sys::*;
-
 /// A selectable menu item
 #[derive(Debug, Clone)]
 pub struct MenuItem {
@@ -319,19 +316,20 @@ pub struct Dialog {
 
 impl Dialog {
     pub fn new(title: impl Into<String>, message: Vec<String>, buttons: Vec<String>) -> Self {
+        let title_str: String = title.into();
         let width = message
             .iter()
             .map(|s| s.len())
             .max()
             .unwrap_or(40)
-            .max(title.to_string().len() + 4)
+            .max(title_str.len() + 4)
             .max(20) as u32
             + 4;
 
         let height = message.len() as u32 + buttons.len() as u32 + 6;
 
         Self {
-            title: title.into(),
+            title: title_str,
             message,
             buttons,
             selected_button: 0,

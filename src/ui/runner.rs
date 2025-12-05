@@ -2,15 +2,16 @@
 
 use super::context::{channels, NotcursesContext};
 use super::screens::Screen;
-use super::widgets::{Button, CheckList, Dialog, InputField, Menu, MenuItem};
-use crate::config::{Compression, Config, InstallMode, RaidLevel};
-use crate::disk::block_device::BlockDevice;
+use super::widgets::{CheckList, Dialog, Menu, MenuItem};
+use crate::config::{Config, InstallMode, RaidLevel};
 use crate::disk::discovery::DeviceDiscovery;
 use crate::error::{InstallerError, Result};
 use std::path::PathBuf;
 
 #[cfg(feature = "tui")]
-use libnotcurses_sys::*;
+use libnotcurses_sys::c_api::{
+    NCKEY_DOWN, NCKEY_ENTER, NCKEY_ESC, NCKEY_LEFT, NCKEY_RIGHT, NCKEY_SPACE, NCKEY_TAB, NCKEY_UP,
+};
 
 /// UI runner
 pub struct UiRunner {
@@ -101,7 +102,7 @@ impl UiRunner {
     }
 
     fn show_welcome(&mut self, ctx: &mut NotcursesContext) -> Result<ScreenAction> {
-        let (rows, cols) = ctx.dimensions();
+        let (_rows, cols) = ctx.dimensions();
         let start_y = 5;
 
         // Draw welcome message
@@ -171,7 +172,7 @@ impl UiRunner {
     }
 
     fn show_mode_select(&mut self, ctx: &mut NotcursesContext) -> Result<ScreenAction> {
-        let (rows, cols) = ctx.dimensions();
+        let (_rows, cols) = ctx.dimensions();
 
         // Draw prompt
         let prompt = "Select Installation Mode:";
@@ -350,7 +351,7 @@ impl UiRunner {
     }
 
     fn show_raid_config(&mut self, ctx: &mut NotcursesContext) -> Result<ScreenAction> {
-        let (rows, cols) = ctx.dimensions();
+        let (_rows, cols) = ctx.dimensions();
 
         ctx.putstr_yx(5, (cols - 30) / 2, "Select RAID Level:", channels::CYAN_ON_BLACK)?;
 
@@ -431,7 +432,7 @@ impl UiRunner {
     }
 
     fn show_settings(&mut self, ctx: &mut NotcursesContext) -> Result<ScreenAction> {
-        let (rows, cols) = ctx.dimensions();
+        let (_rows, cols) = ctx.dimensions();
 
         ctx.putstr_yx(4, (cols - 30) / 2, "Installation Settings:", channels::CYAN_ON_BLACK)?;
 
@@ -479,7 +480,7 @@ impl UiRunner {
     }
 
     fn show_preflight(&mut self, ctx: &mut NotcursesContext) -> Result<ScreenAction> {
-        let (rows, cols) = ctx.dimensions();
+        let (_rows, cols) = ctx.dimensions();
 
         let start_y = 5;
 
