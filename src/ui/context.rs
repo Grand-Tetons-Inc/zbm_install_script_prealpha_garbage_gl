@@ -1,17 +1,14 @@
 //! Notcurses context wrapper - safe Rust interface to libnotcurses
 
 #[cfg(feature = "tui")]
-use libnotcurses_sys::*;
+use libnotcurses_sys::{Nc, NcInput, NcPlane, NcReceived};
 
 use crate::error::{InstallerError, Result};
-use std::ffi::CString;
-use std::ptr;
 
 /// Notcurses context wrapper
 #[cfg(feature = "tui")]
 pub struct NotcursesContext {
-    nc: *mut Notcurses,
-    stdplane: *mut NcPlane,
+    nc: &'static mut Nc,
     rows: u32,
     cols: u32,
 }
@@ -20,44 +17,18 @@ pub struct NotcursesContext {
 impl NotcursesContext {
     /// Initialize notcurses
     pub fn init() -> Result<Self> {
-        unsafe {
-            // Create options with sensible defaults
-            let opts = NcOptions {
-                termtype: ptr::null(),
-                loglevel: NCLOGLEVEL_WARNING,
-                margin_t: 0,
-                margin_r: 0,
-                margin_b: 0,
-                margin_l: 0,
-                flags: NCOPTION_SUPPRESS_BANNERS
-                    | NCOPTION_NO_ALTERNATE_SCREEN
-                    | NCOPTION_PRESERVE_CURSOR,
-            };
+        let nc = unsafe { Nc::new() }.map_err(|e| {
+            InstallerError::UiError(format!("Failed to initialize notcurses: {:?}", e))
+        })?;
 
-            let nc = notcurses_init(&opts, ptr::null_mut());
-            if nc.is_null() {
-                return Err(InstallerError::UiError(
-                    "Failed to initialize notcurses".into(),
-                ));
-            }
+        let stdplane = unsafe { nc.stdplane() };
+        let (rows, cols) = stdplane.dim_yx();
 
-            let stdplane = notcurses_stdplane(nc);
-            if stdplane.is_null() {
-                notcurses_stop(nc);
-                return Err(InstallerError::UiError("Failed to get stdplane".into()));
-            }
-
-            let mut rows = 0u32;
-            let mut cols = 0u32;
-            ncplane_dim_yx(stdplane, &mut rows, &mut cols);
-
-            Ok(Self {
-                nc,
-                stdplane,
-                rows,
-                cols,
-            })
-        }
+        Ok(Self {
+            nc,
+            rows,
+            cols,
+        })
     }
 
     /// Get terminal dimensions
@@ -66,52 +37,43 @@ impl NotcursesContext {
     }
 
     /// Get standard plane
-    pub fn stdplane(&mut self) -> *mut NcPlane {
-        self.stdplane
+    pub fn stdplane(&mut self) -> &mut NcPlane {
+        unsafe { self.nc.stdplane() }
     }
 
     /// Clear the screen
     pub fn clear(&mut self) -> Result<()> {
-        unsafe {
-            ncplane_erase(self.stdplane);
-        }
+        let plane = unsafe { self.nc.stdplane() };
+        plane.erase();
         Ok(())
     }
 
     /// Render the screen
     pub fn render(&mut self) -> Result<()> {
-        unsafe {
-            if notcurses_render(self.nc) != 0 {
-                return Err(InstallerError::UiError("Failed to render".into()));
-            }
-        }
-        Ok(())
+        self.nc.render().map_err(|e| {
+            InstallerError::UiError(format!("Failed to render: {:?}", e))
+        })
     }
 
     /// Get a character/key input (blocking)
     pub fn get_blocking(&mut self) -> Result<NcInput> {
-        unsafe {
-            let mut input = NcInput::default();
-            let id = notcurses_get_blocking(self.nc, &mut input);
-            if id == u32::MAX {
-                return Err(InstallerError::UiError("Failed to get input".into()));
-            }
-            Ok(input)
-        }
+        let mut input = NcInput::default();
+        self.nc.get_blocking(Some(&mut input)).map_err(|e| {
+            InstallerError::UiError(format!("Failed to get input: {:?}", e))
+        })?;
+        Ok(input)
     }
 
     /// Get a character/key input (non-blocking)
     pub fn get_nonblocking(&mut self) -> Result<Option<NcInput>> {
-        unsafe {
-            let mut input = NcInput::default();
-            let id = notcurses_get_nblock(self.nc, &mut input);
-            if id == 0 {
-                Ok(None)
-            } else if id == u32::MAX {
-                Err(InstallerError::UiError("Failed to get input".into()))
-            } else {
-                Ok(Some(input))
-            }
+        let mut input = NcInput::default();
+        let result = self.nc.get_nblock(Some(&mut input)).map_err(|e| {
+            InstallerError::UiError(format!("Failed to get input: {:?}", e))
+        })?;
+
+        match result {
+            NcReceived::NoInput => Ok(None),
+            _ => Ok(Some(input)),
         }
     }
 
@@ -123,21 +85,10 @@ impl NotcursesContext {
         text: &str,
         channels: u64,
     ) -> Result<()> {
-        unsafe {
-            ncplane_set_base(
-                self.stdplane,
-                " ",
-                0,
-                channels,
-            );
-            ncplane_cursor_move_yx(self.stdplane, y as i32, x as i32);
-
-            let c_text = CString::new(text)
-                .map_err(|e| InstallerError::UiError(format!("Invalid string: {}", e)))?;
-
-            ncplane_set_channels(self.stdplane, channels);
-            ncplane_putstr_yx(self.stdplane, y as i32, x as i32, c_text.as_ptr());
-        }
+        let plane = unsafe { self.nc.stdplane() };
+        plane.set_channels(channels);
+        let _ = plane.cursor_move_yx(y, x);
+        let _ = plane.putstr_yx(Some(y), Some(x), text);
         Ok(())
     }
 
@@ -151,45 +102,42 @@ impl NotcursesContext {
         title: Option<&str>,
         channels: u64,
     ) -> Result<()> {
-        unsafe {
-            // Draw corners and edges
-            let ul = "┌";
-            let ur = "┐";
-            let ll = "└";
-            let lr = "┘";
-            let hl = "─";
-            let vl = "│";
+        // Draw corners and edges
+        let ul = "┌";
+        let ur = "┐";
+        let ll = "└";
+        let lr = "┘";
+        let hl = "─";
+        let vl = "│";
 
-            ncplane_set_channels(self.stdplane, channels);
-
-            // Top border
-            self.putstr_yx(y, x, ul, channels)?;
-            for i in 1..width - 1 {
-                self.putstr_yx(y, x + i, hl, channels)?;
-            }
-            self.putstr_yx(y, x + width - 1, ur, channels)?;
-
-            // Title (if provided)
-            if let Some(title) = title {
-                let title_x = x + (width - title.len() as u32) / 2;
-                self.putstr_yx(y, title_x - 1, " ", channels)?;
-                self.putstr_yx(y, title_x, title, channels)?;
-                self.putstr_yx(y, title_x + title.len() as u32, " ", channels)?;
-            }
-
-            // Sides
-            for i in 1..height - 1 {
-                self.putstr_yx(y + i, x, vl, channels)?;
-                self.putstr_yx(y + i, x + width - 1, vl, channels)?;
-            }
-
-            // Bottom border
-            self.putstr_yx(y + height - 1, x, ll, channels)?;
-            for i in 1..width - 1 {
-                self.putstr_yx(y + height - 1, x + i, hl, channels)?;
-            }
-            self.putstr_yx(y + height - 1, x + width - 1, lr, channels)?;
+        // Top border
+        self.putstr_yx(y, x, ul, channels)?;
+        for i in 1..width - 1 {
+            self.putstr_yx(y, x + i, hl, channels)?;
         }
+        self.putstr_yx(y, x + width - 1, ur, channels)?;
+
+        // Title (if provided)
+        if let Some(title) = title {
+            let title_x = x + (width - title.len() as u32) / 2;
+            self.putstr_yx(y, title_x - 1, " ", channels)?;
+            self.putstr_yx(y, title_x, title, channels)?;
+            self.putstr_yx(y, title_x + title.len() as u32, " ", channels)?;
+        }
+
+        // Sides
+        for i in 1..height - 1 {
+            self.putstr_yx(y + i, x, vl, channels)?;
+            self.putstr_yx(y + i, x + width - 1, vl, channels)?;
+        }
+
+        // Bottom border
+        self.putstr_yx(y + height - 1, x, ll, channels)?;
+        for i in 1..width - 1 {
+            self.putstr_yx(y + height - 1, x + i, hl, channels)?;
+        }
+        self.putstr_yx(y + height - 1, x + width - 1, lr, channels)?;
+
         Ok(())
     }
 
@@ -206,18 +154,14 @@ impl NotcursesContext {
     ) -> Result<()> {
         let filled = (width as f32 * progress.clamp(0.0, 1.0)) as u32;
 
-        unsafe {
-            // Draw filled portion
-            ncplane_set_channels(self.stdplane, fg_channels);
-            for i in 0..filled {
-                self.putstr_yx(y, x + i, "█", fg_channels)?;
-            }
+        // Draw filled portion
+        for i in 0..filled {
+            self.putstr_yx(y, x + i, "█", fg_channels)?;
+        }
 
-            // Draw empty portion
-            ncplane_set_channels(self.stdplane, bg_channels);
-            for i in filled..width {
-                self.putstr_yx(y, x + i, "░", bg_channels)?;
-            }
+        // Draw empty portion
+        for i in filled..width {
+            self.putstr_yx(y, x + i, "░", bg_channels)?;
         }
 
         // Draw label if provided
@@ -233,11 +177,7 @@ impl NotcursesContext {
 #[cfg(feature = "tui")]
 impl Drop for NotcursesContext {
     fn drop(&mut self) {
-        unsafe {
-            if !self.nc.is_null() {
-                notcurses_stop(self.nc);
-            }
-        }
+        let _ = unsafe { self.nc.stop() };
     }
 }
 
@@ -257,13 +197,14 @@ impl NotcursesContext {
 /// Helper functions for creating channel values (color pairs)
 #[cfg(feature = "tui")]
 pub mod channels {
-    use libnotcurses_sys::*;
-
     /// Create a channel with RGB colors
     pub fn from_rgb(fg_r: u8, fg_g: u8, fg_b: u8, bg_r: u8, bg_g: u8, bg_b: u8) -> u64 {
         let fg = ((fg_r as u32) << 16) | ((fg_g as u32) << 8) | (fg_b as u32);
         let bg = ((bg_r as u32) << 16) | ((bg_g as u32) << 8) | (bg_b as u32);
-        ((fg as u64) << 32) | (bg as u64)
+        // Set the "not default color" bit for both fg and bg
+        let fg_channel = (fg as u64) | 0x4000_0000; // NC_BGDEFAULT_MASK inverted for fg
+        let bg_channel = (bg as u64) | 0x4000_0000; // NC_BGDEFAULT_MASK for bg
+        (fg_channel << 32) | bg_channel
     }
 
     /// Create a channel with only foreground RGB
@@ -272,18 +213,22 @@ pub mod channels {
     }
 
     /// Common color presets
-    pub const WHITE_ON_BLACK: u64 = 0xFFFFFF_000000;
-    pub const BLACK_ON_WHITE: u64 = 0x000000_FFFFFF;
-    pub const GREEN_ON_BLACK: u64 = 0x00FF00_000000;
-    pub const RED_ON_BLACK: u64 = 0xFF0000_000000;
-    pub const YELLOW_ON_BLACK: u64 = 0xFFFF00_000000;
-    pub const BLUE_ON_BLACK: u64 = 0x0088FF_000000;
-    pub const CYAN_ON_BLACK: u64 = 0x00FFFF_000000;
-    pub const MAGENTA_ON_BLACK: u64 = 0xFF00FF_000000;
+    pub const WHITE_ON_BLACK: u64 = 0x40FFFFFF_40000000;
+    pub const BLACK_ON_WHITE: u64 = 0x40000000_40FFFFFF;
+    pub const GREEN_ON_BLACK: u64 = 0x4000FF00_40000000;
+    pub const RED_ON_BLACK: u64 = 0x40FF0000_40000000;
+    pub const YELLOW_ON_BLACK: u64 = 0x40FFFF00_40000000;
+    pub const BLUE_ON_BLACK: u64 = 0x400088FF_40000000;
+    pub const CYAN_ON_BLACK: u64 = 0x4000FFFF_40000000;
+    pub const MAGENTA_ON_BLACK: u64 = 0x40FF00FF_40000000;
 }
 
 #[cfg(not(feature = "tui"))]
 pub mod channels {
+    pub fn from_rgb(_fg_r: u8, _fg_g: u8, _fg_b: u8, _bg_r: u8, _bg_g: u8, _bg_b: u8) -> u64 {
+        0
+    }
+
     pub const WHITE_ON_BLACK: u64 = 0;
     pub const BLACK_ON_WHITE: u64 = 0;
     pub const GREEN_ON_BLACK: u64 = 0;

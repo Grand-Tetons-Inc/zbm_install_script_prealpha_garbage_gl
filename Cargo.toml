@@ -12,7 +12,8 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 # UI (optional - TUI implementation is incomplete)
-libnotcurses-sys = { version = "3.10", optional = true }
+# Note: This requires notcurses 3.0.7+ to be installed on the system
+libnotcurses-sys = { version = "3.10", optional = true, default-features = false, features = ["libc", "use_vendored_bindings"] }
 
 # System
 libc = "0.2"
@@ -40,6 +41,9 @@ bytesize = { version = "1.3", features = ["serde"] }
 chrono = "0.4"
 uuid = { version = "1.11", features = ["v4"] }
 walkdir = "2.5"
+
+[build-dependencies]
+pkg-config = "0.3"
 
 [dev-dependencies]
 assert_cmd = "2.0"
